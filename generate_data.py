@@ -8,6 +8,7 @@ import os
 import random
 from datetime import date, timedelta
 
+# A fixed seed means the same data is produced on every run, so results can be compared.
 random.seed(42)
 
 START = date(2026, 7, 6)
@@ -27,6 +28,7 @@ LINES = {"Line 1 (cans)": 900, "Line 2 (cans)": 850, "Line 3 (bottles)": 600}  #
 
 
 def write(path, header, rows):
+    """Write a header row and data rows to a CSV file."""
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(header)
@@ -36,6 +38,7 @@ def write(path, header, rows):
 def main(out="data"):
     os.makedirs(out, exist_ok=True)
 
+    # Orders: 25 to 40 a day. Most arrive on time, and about 7% are delivered short.
     orders = []
     oid = 1000
     for d in range(DAYS):
@@ -55,6 +58,7 @@ def main(out="data"):
           ["order_id", "order_date", "region", "channel", "sku", "cases_ordered",
            "requested_date", "delivered_date", "cases_delivered", "price_per_case"], orders)
 
+    # Inventory: one snapshot per DC and SKU on the last day, sized from recent demand.
     inventory = []
     last = START + timedelta(days=DAYS - 1)
     for region, dc in DCS.items():
@@ -64,6 +68,7 @@ def main(out="data"):
             inventory.append([last, dc, sku, int(daily * random.uniform(6, 30))])  # 6 to 30 days of stock
     write(f"{out}/inventory.csv", ["snapshot_date", "dc", "sku", "cases_on_hand"], inventory)
 
+    # Packaging line runs: one per line per day. The bottle line is given more downtime.
     runs = []
     for d in range(DAYS):
         day = START + timedelta(days=d)

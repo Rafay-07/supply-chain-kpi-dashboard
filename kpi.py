@@ -2,6 +2,7 @@
 import csv
 import sqlite3
 
+# The three tables and their columns. Each one is filled from the CSV file of the same name.
 TABLES = {
     "orders": "order_id INTEGER, order_date TEXT, region TEXT, channel TEXT, sku TEXT, cases_ordered INTEGER, "
               "requested_date TEXT, delivered_date TEXT, cases_delivered INTEGER, price_per_case REAL",
@@ -9,6 +10,7 @@ TABLES = {
     "line_runs": "run_date TEXT, line TEXT, planned_minutes INTEGER, run_minutes INTEGER, cases_produced INTEGER, "
                  "cases_rejected INTEGER, ideal_cases_per_hour INTEGER",
 }
+# Which region each distribution centre serves. Used to match stock to demand.
 DC_REGION = {"Mississauga DC": "Ontario", "Montreal DC": "Quebec", "Delta DC": "West", "Halifax DC": "Atlantic"}
 
 # Flag thresholds
@@ -17,10 +19,12 @@ LOW_OEE = 0.65
 
 
 def load(data_dir="data"):
+    """Create an in-memory SQLite database and load the three CSV files into it."""
     conn = sqlite3.connect(":memory:")
     for table, cols in TABLES.items():
         conn.execute(f"CREATE TABLE {table} ({cols})")
         with open(f"{data_dir}/{table}.csv") as f:
+            # Skip the header row. Values are passed as parameters, one "?" per column.
             rows = list(csv.reader(f))[1:]
         marks = ",".join("?" * len(rows[0]))
         conn.executemany(f"INSERT INTO {table} VALUES ({marks})", rows)
@@ -50,6 +54,7 @@ def avg_cycle_days(conn):
 
 def revenue_by(conn, column):
     """Delivered revenue grouped by region or channel, largest first."""
+    # The column name goes into the SQL text, so only these three known names are allowed.
     if column not in ("region", "channel", "sku"):
         raise ValueError("column must be region, channel or sku")
     return conn.execute(f"""
@@ -68,6 +73,8 @@ def weekly_otif(conn):
 
 def days_of_supply(conn, window_days=28):
     """Cases on hand divided by average daily demand over the last window, per DC and SKU."""
+    # Step 1 (demand): average daily cases ordered per region and SKU over the window.
+    # Step 2: join each DC's stock to the demand of the region it serves, and divide.
     return conn.execute("""
         WITH last_day AS (SELECT MAX(order_date) AS d FROM orders),
         demand AS (
@@ -91,6 +98,7 @@ def oee(conn):
                SUM(cases_produced) / SUM(run_minutes / 60.0 * ideal_cases_per_hour) AS performance,
                1.0 * SUM(cases_produced - cases_rejected) / SUM(cases_produced) AS quality
         FROM line_runs GROUP BY line ORDER BY line""").fetchall()
+    # OEE is the three factors multiplied together.
     return [(line, a, p, q, a * p * q) for line, a, p, q in rows]
 
 
@@ -102,6 +110,7 @@ def exceptions(conn):
             out.append(f"{dc}: {sku} has {dos} days of supply ({on_hand} cases on hand)")
     for line, a, p, q, score in oee(conn):
         if score < LOW_OEE:
+            # Name the weakest of the three factors, since that is where to look first.
             low = min((a, "availability"), (p, "performance"), (q, "quality"))[1]
             out.append(f"{line}: OEE is {score:.0%}, lowest factor is {low}")
     return out
