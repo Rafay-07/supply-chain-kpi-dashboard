@@ -11,11 +11,14 @@ from datetime import date, timedelta
 # A fixed seed means the same data is produced on every run, so results can be compared.
 random.seed(42)
 
+# The data covers 91 days (13 weeks), starting on a Monday.
 START = date(2026, 7, 6)
 DAYS = 91
 REGIONS = ["Ontario", "Quebec", "West", "Atlantic"]
 CHANNELS = ["Retail", "On-Premise", "E-commerce"]
+# Each region is served by one distribution centre (DC).
 DCS = {"Ontario": "Mississauga DC", "Quebec": "Montreal DC", "West": "Delta DC", "Atlantic": "Halifax DC"}
+# Product code: (product name, price per case in dollars).
 SKUS = {
     "LAG-24C": ("Lager 24 cans", 42.00),
     "LAG-12B": ("Lager 12 bottles", 24.50),
@@ -36,6 +39,8 @@ def write(path, header, rows):
 
 
 def main(out="data"):
+    """Create the data folder and write orders.csv, inventory.csv and line_runs.csv."""
+    # Create the output folder if it is missing.
     os.makedirs(out, exist_ok=True)
 
     # Orders: 25 to 40 a day. Most arrive on time, and about 7% are delivered short.
@@ -44,12 +49,16 @@ def main(out="data"):
     for d in range(DAYS):
         day = START + timedelta(days=d)
         for _ in range(random.randint(25, 40)):
+            # Regions are picked with weights, so Ontario gets the most orders.
             region = random.choices(REGIONS, weights=[45, 25, 20, 10])[0]
             sku = random.choice(list(SKUS))
             cases = random.randint(20, 400)
+            # The customer asks for delivery 2 to 4 days after ordering.
             requested = day + timedelta(days=random.choice([2, 3, 4]))
+            # Delivery is 1 day early, on time, 1 day late or 2 days late, with weights 20, 62, 13 and 5.
             delivered = requested + timedelta(days=random.choices([-1, 0, 1, 2], weights=[20, 62, 13, 5])[0])
             short = random.random() < 0.07
+            # A short order delivers only 70 to 95% of the cases ordered.
             delivered_cases = int(cases * random.uniform(0.7, 0.95)) if short else cases
             orders.append([oid, day, region, random.choice(CHANNELS), sku, cases,
                            requested, delivered, delivered_cases, SKUS[sku][1]])
@@ -63,7 +72,9 @@ def main(out="data"):
     last = START + timedelta(days=DAYS - 1)
     for region, dc in DCS.items():
         for sku in SKUS:
+            # Orders for this region and SKU in the last 28 days.
             recent = [o for o in orders if o[2] == region and o[4] == sku and (last - o[1]).days < 28]
+            # Average cases ordered per day over those 28 days.
             daily = sum(o[5] for o in recent) / 28
             inventory.append([last, dc, sku, int(daily * random.uniform(6, 30))])  # 6 to 30 days of stock
     write(f"{out}/inventory.csv", ["snapshot_date", "dc", "sku", "cases_on_hand"], inventory)
@@ -75,8 +86,11 @@ def main(out="data"):
         for line, rate in LINES.items():
             planned = 960  # two 8-hour shifts
             downtime = random.randint(100, 420) if "bottles" in line else random.randint(30, 220)
+            # Run time is what is left of the planned minutes after downtime.
             run = planned - downtime
+            # Output is run time x ideal speed, times a random efficiency of 78 to 97%.
             produced = int(run / 60 * rate * random.uniform(0.78, 0.97))
+            # Rejected cases are 0.5 to 3% of what was produced.
             rejects = int(produced * random.uniform(0.005, 0.03))
             runs.append([day, line, planned, run, produced, rejects, rate])
     write(f"{out}/line_runs.csv",
@@ -86,5 +100,6 @@ def main(out="data"):
     print(f"Wrote {len(orders)} orders, {len(inventory)} inventory rows, {len(runs)} line runs to {out}/")
 
 
+# Run main() only when this file is run directly, not when it is imported.
 if __name__ == "__main__":
     main()
